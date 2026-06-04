@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Fira Code", "JetBrains Mono", monospace;
+  --primary: #0f172a;
+  --accent: #3b82f6;
+  --accent-light: #eff6ff;
+  --danger: #ef4444;
+}
+
+/* Custom styling for sliders to ensure a polished look across browsers */
+input[type="range"].slider-track {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  outline: none;
+}
+
+input[type="range"].slider-track::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #3b82f6;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
+  transition: transform 0.1s ease, background-color 0.1s ease;
+}
+
+input[type="range"].slider-track::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  background: #2563eb;
+}
+
+input[type="range"].slider-track::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: #3b82f6;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
+  transition: transform 0.1s ease, background-color 0.1s ease;
+}
+
+input[type="range"].slider-track::-moz-range-thumb:hover {
+  transform: scale(1.15);
+  background: #2563eb;
+}
+
+/* Scrollbar styling for sidebar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
