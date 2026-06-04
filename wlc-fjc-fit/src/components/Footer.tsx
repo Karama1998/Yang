@@ -5,9 +5,9 @@ import { Download, Compass } from 'lucide-react';
 interface FooterProps {
   cursorX: number | null;
   cursorY: number | null;
-  modelType: ModelType;
   params: ChainParameters;
-  fitResults: FitResults | null;
+  fitResultsWlc: FitResults | null;
+  fitResultsFjc: FitResults | null;
   onPerformGlobalFit: () => void;
   onExportCsv: () => void;
   hasPoints: boolean;
@@ -16,9 +16,9 @@ interface FooterProps {
 export default function Footer({
   cursorX,
   cursorY,
-  modelType,
   params,
-  fitResults,
+  fitResultsWlc,
+  fitResultsFjc,
   onPerformGlobalFit,
   onExportCsv,
   hasPoints,
@@ -26,8 +26,8 @@ export default function Footer({
   return (
     <footer className="h-16 bg-slate-900 border-t border-slate-800 shrink-0 px-6 flex items-center justify-between text-white z-10 font-sans" id="app-footer">
       {/* Telemetry readouts */}
-      <div className="flex items-center gap-6">
-        <div className="flex flex-col">
+      <div className="flex items-center gap-6 overflow-x-auto no-scrollbar py-1">
+        <div className="flex flex-col shrink-0">
           <span className="text-[9px] uppercase tracking-widest text-slate-500 font-bold">Active Cursor</span>
           <span className="text-xs font-mono text-emerald-400">
             {cursorX !== null && cursorY !== null
@@ -36,24 +36,36 @@ export default function Footer({
           </span>
         </div>
         
-        <div className="h-8 w-px bg-slate-700 hidden sm:block"></div>
+        <div className="h-8 w-px bg-slate-800 hidden sm:block shrink-0"></div>
         
-        <div className="flex flex-col hidden sm:flex">
-          <span className="text-[9px] uppercase tracking-widest text-slate-500 font-bold">Model Parameters</span>
-          <span className="text-xs font-mono text-blue-400">
-            {modelType === 'WLC' 
-              ? `Lp: ${params.persistenceLength.toFixed(2)} nm | Lc: ${params.contourLength.toFixed(1)} nm`
-              : `Lk: ${params.kuhnLength.toFixed(2)} nm | Lc: ${params.contourLength.toFixed(1)} nm`}
+        <div className="flex flex-col hidden sm:flex shrink-0">
+          <span className="text-[9px] uppercase tracking-widest text-slate-500 font-bold">Manual Models</span>
+          <span className="text-xs font-mono">
+            <span className="text-blue-400 font-medium">WLC (Lp: {params.persistenceLength.toFixed(2)}nm)</span>
+            <span className="text-slate-650 mx-2">|</span>
+            <span className="text-purple-400 font-medium">FJC (Lk: {params.kuhnLength.toFixed(1)}nm)</span>
           </span>
         </div>
 
-        {fitResults && (
+        {fitResultsWlc && (
           <>
-            <div className="h-8 w-px bg-slate-700 hidden md:block"></div>
-            <div className="flex flex-col hidden md:flex">
-              <span className="text-[9px] uppercase tracking-widest text-slate-500 font-bold">Fitting Results</span>
-              <span className="text-xs font-mono text-emerald-300">
-                Lp: {fitResults.lp.toFixed(2)} nm | Lc: {fitResults.lc.toFixed(1)} nm | Chi²: {fitResults.chiSq}
+            <div className="h-8 w-px bg-slate-800 hidden md:block shrink-0"></div>
+            <div className="flex flex-col hidden md:flex shrink-0">
+              <span className="text-[9px] uppercase tracking-widest text-slate-500 font-bold">WLC Best Fit</span>
+              <span className="text-xs font-mono text-blue-300">
+                Lp: {fitResultsWlc.lp.toFixed(2)} nm | Lc: {fitResultsWlc.lc.toFixed(1)} nm | Chi²: {fitResultsWlc.chiSq}
+              </span>
+            </div>
+          </>
+        )}
+
+        {fitResultsFjc && (
+          <>
+            <div className="h-8 w-px bg-slate-800 hidden lg:block shrink-0"></div>
+            <div className="flex flex-col hidden lg:flex shrink-0">
+              <span className="text-[9px] uppercase tracking-widest text-slate-500 font-bold">FJC Best Fit</span>
+              <span className="text-xs font-mono text-purple-300">
+                Lk: {fitResultsFjc.lk.toFixed(2)} nm | Lc: {fitResultsFjc.lc.toFixed(1)} nm | Chi²: {fitResultsFjc.chiSq}
               </span>
             </div>
           </>

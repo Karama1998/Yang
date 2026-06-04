@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ZoomIn, ZoomOut, Maximize2, MousePointer, Hand, Crosshair } from 'lucide-react';
-import { DataPoint, ModelType, ChainParameters, CoordinateShift } from '../types';
+import { ZoomIn, ZoomOut, Maximize2, MousePointer, Hand, Crosshair, Camera, Download, ChevronDown } from 'lucide-react';
+import { DataPoint, ModelType, ChainParameters, CoordinateShift, FitResults } from '../types';
 import { wlcForce, fjcExtension } from '../utils/polymerFit';
 
 interface Viewport {
@@ -12,7 +12,6 @@ interface Viewport {
 
 interface GraphAreaProps {
   points: DataPoint[];
-  modelType: ModelType;
   params: ChainParameters;
   coordinateShift: CoordinateShift;
   viewport: Viewport;
@@ -24,11 +23,12 @@ interface GraphAreaProps {
   onCursorMove: (x: number | null, y: number | null) => void;
   onResetViewport: () => void;
   currentFileName: string;
+  fitResultsWlc: FitResults | null;
+  fitResultsFjc: FitResults | null;
 }
 
 export default function GraphArea({
   points,
-  modelType,
   params,
   coordinateShift,
   viewport,
@@ -40,6 +40,8 @@ export default function GraphArea({
   onCursorMove,
   onResetViewport,
   currentFileName,
+  fitResultsWlc,
+  fitResultsFjc,
 }: GraphAreaProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const isPanningRef = useRef(false);
@@ -54,9 +56,109 @@ export default function GraphArea({
     yMax_start: number;
   } | null>(null);
 
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(event.target as Node)) {
+        setIsExportOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   // Svg internal dimension
   const W = 800;
   const H = 500;
+
+  const exportAsSvg = () => {
+    if (!svgRef.current) return;
+    try {
+      const svgClone = svgRef.current.cloneNode(true) as SVGSVGElement;
+      
+      // Add visual background element directly inside exported SVG for portability
+      const rectBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rectBg.setAttribute("width", "100%");
+      rectBg.setAttribute("height", "100%");
+      rectBg.setAttribute("fill", "#ffffff");
+      svgClone.insertBefore(rectBg, svgClone.firstChild);
+
+      const serializer = new XMLSerializer();
+      const svgString = serializer.serializeToString(svgClone);
+      const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const safeName = currentFileName ? currentFileName.replace(/\.[^/.]+$/, "") : "plot";
+      link.href = url;
+      link.download = `polymerfit_${safeName}.svg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to export SVG:", err);
+    }
+  };
+
+  const exportAsPng = () => {
+    if (!svgRef.current) return;
+    try {
+      const svgElement = svgRef.current;
+      const serializer = new XMLSerializer();
+      const svgClone = svgElement.cloneNode(true) as SVGSVGElement;
+      
+      const rectBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rectBg.setAttribute("width", "100%");
+      rectBg.setAttribute("height", "100%");
+      rectBg.setAttribute("fill", "#ffffff");
+      svgClone.insertBefore(rectBg, svgClone.firstChild);
+
+      const svgString = serializer.serializeToString(svgClone);
+      const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const blobURL = URL.createObjectURL(svgBlob);
+      
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        const scale = 2.5; // High definition scaling
+        canvas.width = W * scale;
+        canvas.height = H * scale;
+        const context = canvas.getContext('2d');
+        if (context) {
+          context.fillStyle = '#ffffff';
+          context.fillRect(0, 0, canvas.width, canvas.height);
+          context.scale(scale, scale);
+          context.drawImage(image, 0, 0, W, H);
+          
+          try {
+            const pngUrl = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            const safeName = currentFileName ? currentFileName.replace(/\.[^/.]+$/, "") : "plot";
+            link.href = pngUrl;
+            link.download = `polymerfit_${safeName}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } catch (canvasErr) {
+            console.error("Canvas toDataURL failed:", canvasErr);
+          }
+        }
+        URL.revokeObjectURL(blobURL);
+      };
+      image.onerror = (e) => {
+        console.error("Image load error on SVG rasterization:", e);
+        URL.revokeObjectURL(blobURL);
+      };
+      image.src = blobURL;
+    } catch (err) {
+      console.error("Failed to export PNG:", err);
+    }
+  };
   
   const paddingLeft = 70;
   const paddingRight = 40;
@@ -105,14 +207,16 @@ export default function GraphArea({
     const cenX = cx !== undefined ? cx : (viewport.xMin + viewport.xMax) / 2;
     const cenY = cy !== undefined ? cy : (viewport.yMin + viewport.yMax) / 2;
 
-    const halfX = ((viewport.xMax - viewport.xMin) * factorX) / 2;
-    const halfY = ((viewport.yMax - viewport.yMin) * factorY) / 2;
+    const newXMin = cenX - factorX * (cenX - viewport.xMin);
+    const newXMax = cenX + factorX * (viewport.xMax - cenX);
+    const newYMin = cenY - factorY * (cenY - viewport.yMin);
+    const newYMax = cenY + factorY * (viewport.yMax - cenY);
 
     onViewportChange({
-      xMin: cenX - halfX,
-      xMax: cenX + halfX,
-      yMin: cenY - halfY,
-      yMax: cenY + halfY,
+      xMin: newXMin,
+      xMax: newXMax,
+      yMin: newYMin,
+      yMax: newYMax,
     });
   };
 
@@ -283,53 +387,47 @@ export default function GraphArea({
       .join(' L ');
   }
 
-  // Generate model curve paths
-  let modelPath = '';
-  if (params.contourLength > 0) {
-    if (modelType === 'WLC') {
-      // For WLC, we cover extension values x from 0 to min(current xMax, Lc)
-      const xStart = Math.max(0, viewport.xMin);
-      const xEnd = Math.min(viewport.xMax, params.contourLength * 0.998);
-      
-      if (xEnd > xStart) {
-        const resolution = 150;
-        const pts: string[] = [];
-        for (let i = 0; i <= resolution; i++) {
-          const vx = xStart + (i / resolution) * (xEnd - xStart);
-          const vy = wlcForce(vx, params.persistenceLength, params.contourLength);
-          const sx = virtualToScreenX(vx);
-          const sy = virtualToScreenY(vy);
-          if (!isNaN(sx) && !isNaN(sy) && sy >= 0 && sy <= H) {
-            pts.push(`${sx},${sy}`);
-          }
-        }
-        if (pts.length > 0) {
-          modelPath = 'M ' + pts.join(' L ');
-        }
-      }
-    } else {
-      // For FJC, we sweep force values F from min to max across viewport, calculating extension
-      const yStart = Math.max(0, viewport.yMin);
-      const yEnd = viewport.yMax;
-      
-      if (yEnd > yStart) {
-        const resolution = 150;
-        const pts: string[] = [];
-        for (let i = 0; i <= resolution; i++) {
-          const vy = yStart + (i / resolution) * (yEnd - yStart);
-          const vx = fjcExtension(vy, params.kuhnLength, params.contourLength);
-          const sx = virtualToScreenX(vx);
-          const sy = virtualToScreenY(vy);
-          if (!isNaN(sx) && !isNaN(sy)) {
-            pts.push(`${sx},${sy}`);
-          }
-        }
-        if (pts.length > 0) {
-          modelPath = 'M ' + pts.join(' L ');
-        }
+  // Helper functions to generate mathematical paths
+  const generateWlcPath = (Lp: number, Lc: number) => {
+    if (Lc <= 0 || Lp <= 0) return '';
+    const xStart = Math.max(0, viewport.xMin);
+    const xEnd = Math.min(viewport.xMax, Lc * 0.998);
+    if (xEnd <= xStart) return '';
+    const resolution = 150;
+    const pts: string[] = [];
+    for (let i = 0; i <= resolution; i++) {
+      const vx = xStart + (i / resolution) * (xEnd - xStart);
+      const vy = wlcForce(vx, Lp, Lc);
+      const sx = virtualToScreenX(vx);
+      const sy = virtualToScreenY(vy);
+      if (!isNaN(sx) && !isNaN(sy) && sy >= 0 && sy <= H) {
+        pts.push(`${sx},${sy}`);
       }
     }
-  }
+    return pts.length > 0 ? 'M ' + pts.join(' L ') : '';
+  };
+
+  const generateFjcPath = (Lk: number, Lc: number) => {
+    if (Lc <= 0 || Lk <= 0) return '';
+    const yStart = Math.max(0, viewport.yMin);
+    const yEnd = viewport.yMax;
+    if (yEnd <= yStart) return '';
+    const resolution = 150;
+    const pts: string[] = [];
+    for (let i = 0; i <= resolution; i++) {
+      const vy = yStart + (i / resolution) * (yEnd - yStart);
+      const vx = fjcExtension(vy, Lk, Lc);
+      const sx = virtualToScreenX(vx);
+      const sy = virtualToScreenY(vy);
+      if (!isNaN(sx) && !isNaN(sy)) {
+        pts.push(`${sx},${sy}`);
+      }
+    }
+    return pts.length > 0 ? 'M ' + pts.join(' L ') : '';
+  };
+
+  const wlcPath = generateWlcPath(params.persistenceLength, params.contourLengthWlc);
+  const fjcPath = generateFjcPath(params.kuhnLength, params.contourLengthFjc);
 
   // Pick point screen position
   let pickLineX = 0;
@@ -346,7 +444,7 @@ export default function GraphArea({
       );
       forceAtPick = closest.y;
     } else {
-      forceAtPick = wlcForce(pickedX, params.persistenceLength, params.contourLength);
+      forceAtPick = wlcForce(pickedX, params.persistenceLength, params.contourLengthWlc);
     }
 
     pickCircle = {
@@ -458,7 +556,7 @@ export default function GraphArea({
         <div className="hidden md:block w-[1px] h-5 bg-slate-200 mx-0.5"></div>
 
         {/* Action controls */}
-        <div className="flex items-center gap-1 px-1">
+        <div className="flex items-center gap-1.5 px-1">
           <button
             onClick={onResetViewport}
             className="p-1 hover:bg-slate-100 rounded text-slate-600 transition"
@@ -480,6 +578,43 @@ export default function GraphArea({
             <Crosshair size={12} />
             <span>{isPickingMode ? 'Click Plot to Pick' : 'Pick Fitting Point'}</span>
           </button>
+
+          {/* Export dropdown */}
+          <div className="relative" ref={exportRef}>
+            <button
+              onClick={() => setIsExportOpen(!isExportOpen)}
+              className="px-2.5 py-1 text-[11px] font-extrabold text-slate-700 hover:bg-slate-100 rounded-md flex items-center gap-1.5 transition-all border border-slate-200"
+              title="Export high-resolution plot image"
+            >
+              <Camera size={12} className="text-slate-500" />
+              <span>Export</span>
+              <ChevronDown size={11} className={`text-slate-400 transition-transform duration-200 ${isExportOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isExportOpen && (
+              <div className="absolute right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl py-1 w-32 z-30 font-sans">
+                <button
+                  onClick={() => {
+                    exportAsPng();
+                    setIsExportOpen(false);
+                  }}
+                  className="w-full text-left px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 transition-colors"
+                >
+                  <Camera size={12} className="text-pink-500" />
+                  <span>Export PNG</span>
+                </button>
+                <button
+                  onClick={() => {
+                    exportAsSvg();
+                    setIsExportOpen(false);
+                  }}
+                  className="w-full text-left px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 transition-colors border-t border-slate-100"
+                >
+                  <Download size={12} className="text-blue-500" />
+                  <span>Export SVG</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -596,7 +731,7 @@ export default function GraphArea({
           />
 
           {/* X Axis ticks labels */}
-          <g className="x-labels text-[10px] fill-slate-400 font-mono">
+          <g className="x-labels" fill="#94a3b8" fontSize="10" fontFamily="ui-monospace, SFMono-Regular, SF Mono, Menlo, Monaco, Consolas, monospace">
             {xTicks.map((x, idx) => {
               const sx = virtualToScreenX(x);
               if (sx < paddingLeft - 5 || sx > W - paddingRight + 5) return null;
@@ -612,7 +747,7 @@ export default function GraphArea({
           </g>
 
           {/* Y Axis ticks labels */}
-          <g className="y-labels text-[10px] fill-slate-400 font-mono">
+          <g className="y-labels" fill="#94a3b8" fontSize="10" fontFamily="ui-monospace, SFMono-Regular, SF Mono, Menlo, Monaco, Consolas, monospace">
             {yTicks.map((y, idx) => {
               const sy = virtualToScreenY(y);
               if (sy < paddingTop - 5 || sy > H - paddingBottom + 5) return null;
@@ -632,7 +767,10 @@ export default function GraphArea({
             x={paddingLeft + plotWidth / 2}
             y={H - 12}
             textAnchor="middle"
-            className="text-[11px] font-semibold fill-slate-500"
+            fill="#64748b"
+            fontSize="11.5"
+            fontWeight="600"
+            fontFamily="Inter, system-ui, -apple-system, sans-serif"
           >
             Extension (nm)
           </text>
@@ -642,7 +780,10 @@ export default function GraphArea({
             y={paddingTop + plotHeight / 2}
             textAnchor="middle"
             transform={`rotate(-90 ${18} ${paddingTop + plotHeight / 2})`}
-            className="text-[11px] font-semibold fill-slate-500"
+            fill="#64748b"
+            fontSize="11.5"
+            fontWeight="600"
+            fontFamily="Inter, system-ui, -apple-system, sans-serif"
           >
             Force (pN)
           </text>
@@ -745,16 +886,33 @@ export default function GraphArea({
             </g>
           )}
 
-          {/* Render mathematical theoretical curve */}
-          {modelPath && (
+          {/* Render both WLC & FJC curves: Adjustable model lines */}
+          
+          {/* WLC Model Curve (Solid Blue) */}
+          {wlcPath && (
             <path
-              d={modelPath}
-              stroke="#3b82f6"
-              strokeWidth="2.5"
+              d={wlcPath}
+              stroke="#2563eb"
+              strokeWidth="2.8"
               fill="none"
               strokeLinecap="round"
               className="transition-all duration-75"
               clipPath="url(#plot-clip)"
+              id="wlc-fitting-path"
+            />
+          )}
+
+          {/* FJC Model Curve (Solid Purple) */}
+          {fjcPath && (
+            <path
+              d={fjcPath}
+              stroke="#8b5cf6"
+              strokeWidth="2.8"
+              fill="none"
+              strokeLinecap="round"
+              className="transition-all duration-75"
+              clipPath="url(#plot-clip)"
+              id="fjc-fitting-path"
             />
           )}
 
@@ -806,20 +964,66 @@ export default function GraphArea({
         </svg>
 
         {/* Legend info panel */}
-        <div className="absolute bottom-4 right-4 bg-slate-900/90 backdrop-blur text-white text-[10px] p-3 rounded-lg font-mono space-y-1 z-10 border border-slate-700 max-w-[270px]">
-          <div className="flex justify-between gap-6">
-            <span className="text-slate-400">Experimental:</span>
-            <span className="text-red-400 truncate">{currentFileName}</span>
+        <div className="absolute bottom-4 right-4 bg-slate-900/95 backdrop-blur text-white text-[10px] p-3 rounded-xl font-mono space-y-2.5 z-10 border border-slate-700 w-64 shadow-xl font-medium" id="plot-legend">
+          <div className="text-[9px] uppercase tracking-wider text-slate-400 border-b border-slate-800 pb-1 font-bold">
+            Plot Legend
           </div>
-          <div className="flex justify-between gap-6">
-            <span className="text-slate-400">Theoretical:</span>
-            <span className="text-blue-400">
-              {modelType === 'WLC' ? 'Marko-Siggia WLC' : 'Langevin FJC'}
+          
+          {/* Experimental Trace */}
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 bg-red-500 rounded-full shrink-0 animate-pulse"></span>
+            <span className="text-slate-300">Measured:</span>
+            <span className="text-red-400 truncate ml-auto max-w-[110px]" title={currentFileName}>
+              {currentFileName}
             </span>
           </div>
-          <div className="flex justify-between gap-6">
-            <span className="text-slate-400">Fitting Scope:</span>
-            <span>{pickedX !== null ? `0 - ${pickedX.toFixed(1)} nm` : 'Not Defined'}</span>
+
+          {/* Unified WLC Model */}
+          <div className="space-y-1.5 pt-1.5 border-t border-slate-800">
+            <div className="flex items-center gap-2">
+              <span className="w-3.5 h-1.5 bg-blue-600 rounded-sm shrink-0"></span>
+              <span className="text-slate-200 font-bold">WLC Curve (Adjustable)</span>
+            </div>
+            <div className="pl-5 text-[9px] text-slate-400 space-y-0.5">
+              <div className="flex justify-between">
+                <span>Persistence (Lp):</span>
+                <span className="text-blue-300 font-bold">{params.persistenceLength.toFixed(2)} nm</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Contour (Lc):</span>
+                <span className="text-blue-300 font-bold">{params.contourLengthWlc.toFixed(1)} nm</span>
+              </div>
+              {pickedX !== null && fitResultsWlc && (
+                <div className="flex justify-between text-slate-500 border-t border-slate-800/40 pt-0.5 mt-0.5">
+                  <span>Fit Chi²:</span>
+                  <span className="text-emerald-400 font-bold">{fitResultsWlc.chiSq}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Unified FJC Model */}
+          <div className="space-y-1.5 pt-1.5 border-t border-slate-800">
+            <div className="flex items-center gap-2">
+              <span className="w-3.5 h-1.5 bg-purple-500 rounded-sm shrink-0"></span>
+              <span className="text-slate-200 font-bold">FJC Curve (Adjustable)</span>
+            </div>
+            <div className="pl-5 text-[9px] text-slate-400 space-y-0.5">
+              <div className="flex justify-between">
+                <span>Kuhn Length (Lk):</span>
+                <span className="text-purple-300 font-bold">{params.kuhnLength.toFixed(2)} nm</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Contour (Lc):</span>
+                <span className="text-purple-300 font-bold">{params.contourLengthFjc.toFixed(1)} nm</span>
+              </div>
+              {pickedX !== null && fitResultsFjc && (
+                <div className="flex justify-between text-slate-500 border-t border-slate-800/40 pt-0.5 mt-0.5">
+                  <span>Fit Chi²:</span>
+                  <span className="text-emerald-400 font-bold">{fitResultsFjc.chiSq}</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

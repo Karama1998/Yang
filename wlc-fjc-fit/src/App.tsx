@@ -16,11 +16,11 @@ import Footer from './components/Footer';
 
 export default function App() {
   // Model Settings
-  const [modelType, setModelType] = useState<ModelType>('WLC');
   const [params, setParams] = useState<ChainParameters>({
     persistenceLength: 0.5, // nm (standard persistence length is ~0.4 - 0.5 for ssDNA/PEG)
     kuhnLength: 1.0,        // nm
-    contourLength: 350.0,   // nm
+    contourLengthWlc: 350.0,
+    contourLengthFjc: 350.0,
   });
 
   // Shifts
@@ -68,26 +68,33 @@ export default function App() {
     });
   }, [rawPoints, coordinateShift]);
 
-  // 2. Perform global fitting up to pickedX
-  const fitResults = useMemo(() => {
+  // 2a. Perform WLC fitting up to pickedX
+  const fitResultsWlc = useMemo(() => {
     if (pickedX === null || activePoints.length === 0) return null;
-    if (modelType === 'WLC') {
-      return fitWlcModel(activePoints, pickedX, constrainZeroAndPicked);
-    } else {
-      return fitFjcModel(activePoints, pickedX, constrainZeroAndPicked);
-    }
-  }, [activePoints, pickedX, modelType, constrainZeroAndPicked]);
+    return fitWlcModel(activePoints, pickedX, constrainZeroAndPicked);
+  }, [activePoints, pickedX, constrainZeroAndPicked]);
+
+  // 2b. Perform FJC fitting up to pickedX
+  const fitResultsFjc = useMemo(() => {
+    if (pickedX === null || activePoints.length === 0) return null;
+    return fitFjcModel(activePoints, pickedX, constrainZeroAndPicked);
+  }, [activePoints, pickedX, constrainZeroAndPicked]);
 
   // 3. Update sliders whenever the user picks a fit boundary and a fit completes
   useEffect(() => {
-    if (fitResults && fitResults.fittedPointsCount > 0) {
-      setParams({
-        persistenceLength: fitResults.lp,
-        kuhnLength: fitResults.lk,
-        contourLength: fitResults.lc,
-      });
-    }
-  }, [fitResults]);
+    setParams(prev => {
+      let updated = { ...prev };
+      if (fitResultsWlc && fitResultsWlc.fittedPointsCount > 0) {
+        updated.persistenceLength = fitResultsWlc.lp;
+        updated.contourLengthWlc = fitResultsWlc.lc;
+      }
+      if (fitResultsFjc && fitResultsFjc.fittedPointsCount > 0) {
+        updated.kuhnLength = fitResultsFjc.lk;
+        updated.contourLengthFjc = fitResultsFjc.lc;
+      }
+      return updated;
+    });
+  }, [fitResultsWlc, fitResultsFjc]);
 
   // Find exact experimental data point closest to clicked boundary pickedX
   const pickedPoint = useMemo(() => {
@@ -117,54 +124,47 @@ export default function App() {
     const xp = pickedPoint.x;
     const yp = pickedPoint.y;
 
-    if (modelType === 'WLC') {
-      const lcChanged = Math.abs(newParams.contourLength - params.contourLength) > 1e-4;
-      const lpChanged = Math.abs(newParams.persistenceLength - params.persistenceLength) > 1e-4;
+    const lcWlcChanged = Math.abs(newParams.contourLengthWlc - params.contourLengthWlc) > 1e-4;
+    const lcFjcChanged = Math.abs(newParams.contourLengthFjc - params.contourLengthFjc) > 1e-4;
+    const lpChanged = Math.abs(newParams.persistenceLength - params.persistenceLength) > 1e-4;
+    const lkChanged = Math.abs(newParams.kuhnLength - params.kuhnLength) > 1e-4;
 
-      if (lcChanged) {
-        const lc = Math.max(xp * 1.002, newParams.contourLength);
-        const lp = getConstrainedLp(lc, xp, yp);
-        setParams({
-          contourLength: lc,
-          persistenceLength: lp,
-          kuhnLength: lp * 2.0
-        });
-      } else if (lpChanged) {
-        const lp = Math.max(0.01, newParams.persistenceLength);
-        const lc = getConstrainedLcWlc(lp, xp, yp);
-        setParams({
-          contourLength: lc,
-          persistenceLength: lp,
-          kuhnLength: lp * 2.0
-        });
-      } else {
-        setParams(newParams);
-      }
+    if (lcWlcChanged) {
+      const lc = Math.max(xp * 1.002, newParams.contourLengthWlc);
+      const lp = getConstrainedLp(lc, xp, yp);
+      setParams({
+        ...newParams,
+        contourLengthWlc: lc,
+        persistenceLength: lp
+      });
+    } else if (lcFjcChanged) {
+      const lc = Math.max(xp * 1.002, newParams.contourLengthFjc);
+      const lk = getConstrainedLkFjc(lc, xp, yp);
+      setParams({
+        ...newParams,
+        contourLengthFjc: lc,
+        kuhnLength: lk
+      });
+    } else if (lpChanged) {
+      const lp = Math.max(0.01, newParams.persistenceLength);
+      const lc = getConstrainedLcWlc(lp, xp, yp);
+      setParams({
+        ...newParams,
+        persistenceLength: lp,
+        contourLengthWlc: lc
+      });
+    } else if (lkChanged) {
+      const lk = Math.max(0.01, newParams.kuhnLength);
+      const lc = getConstrainedLcFjc(lk, xp, yp);
+      setParams({
+        ...newParams,
+        kuhnLength: lk,
+        contourLengthFjc: lc
+      });
     } else {
-      const lcChanged = Math.abs(newParams.contourLength - params.contourLength) > 1e-4;
-      const lkChanged = Math.abs(newParams.kuhnLength - params.kuhnLength) > 1e-4;
-
-      if (lcChanged) {
-        const lc = Math.max(xp * 1.002, newParams.contourLength);
-        const lk = getConstrainedLkFjc(lc, xp, yp);
-        setParams({
-          contourLength: lc,
-          kuhnLength: lk,
-          persistenceLength: lk / 2.0
-        });
-      } else if (lkChanged) {
-        const lk = Math.max(0.01, newParams.kuhnLength);
-        const lc = getConstrainedLcFjc(lk, xp, yp);
-        setParams({
-          contourLength: lc,
-          kuhnLength: lk,
-          persistenceLength: lk / 2.0
-        });
-      } else {
-        setParams(newParams);
-      }
+      setParams(newParams);
     }
-  }, [constrainZeroAndPicked, pickedPoint, modelType, params]);
+  }, [constrainZeroAndPicked, pickedPoint, params]);
 
   // Helper to adjust viewport based on dataset bounds
   const handleAutoFitViewport = useCallback((pts: DataPoint[]) => {
@@ -191,7 +191,8 @@ export default function App() {
     const guessedLc = parseFloat((maxX * 1.05).toFixed(1));
     setParams(prev => ({
       ...prev,
-      contourLength: guessedLc,
+      contourLengthWlc: guessedLc,
+      contourLengthFjc: guessedLc,
       // Keep other values or set reasonable physical defaults
       persistenceLength: prev.persistenceLength > 0 ? prev.persistenceLength : 0.5,
       kuhnLength: prev.kuhnLength > 0 ? prev.kuhnLength : 1.0,
@@ -296,71 +297,63 @@ export default function App() {
     
     setPickedX(suggestedPickedX);
 
-    const fitVal = modelType === 'WLC'
-      ? fitWlcModel(activePoints, suggestedPickedX, constrainZeroAndPicked)
-      : fitFjcModel(activePoints, suggestedPickedX, constrainZeroAndPicked);
+    const fitValWlc = fitWlcModel(activePoints, suggestedPickedX, constrainZeroAndPicked);
+    const fitValFjc = fitFjcModel(activePoints, suggestedPickedX, constrainZeroAndPicked);
 
-    if (fitVal && fitVal.fittedPointsCount > 0) {
-      setParams({
-        persistenceLength: fitVal.lp,
-        kuhnLength: fitVal.lk,
-        contourLength: fitVal.lc,
-      });
-    }
+    setParams({
+      persistenceLength: fitValWlc && fitValWlc.fittedPointsCount > 0 ? fitValWlc.lp : 0.5,
+      kuhnLength: fitValFjc && fitValFjc.fittedPointsCount > 0 ? fitValFjc.lk : 1.0,
+      contourLengthWlc: fitValWlc && fitValWlc.fittedPointsCount > 0 ? fitValWlc.lc : suggestedPickedX * 1.05,
+      contourLengthFjc: fitValFjc && fitValFjc.fittedPointsCount > 0 ? fitValFjc.lc : suggestedPickedX * 1.05,
+    });
   };
 
   // Export spreadsheet curves as CSV file
   const handleExportCsv = () => {
     if (activePoints.length === 0) return;
 
-    let csv = '';
-    if (modelType === 'WLC') {
-      csv = 'Index,Raw_Extension_m,Raw_Force_N,Aligned_Extension_nm,Aligned_Force_pN,Siggia_WLC_Model_Force_pN,Residual_pN\n';
-    } else {
-      csv = 'Index,Raw_Extension_m,Raw_Force_N,Aligned_Extension_nm,Aligned_Force_pN,Langevin_FJC_Model_Extension_nm,Residual_nm\n';
-    }
+    const csv = 'Index,Raw_Extension_m,Raw_Force_N,Aligned_Extension_nm,Aligned_Force_pN,Siggia_WLC_Model_Force_pN,Langevin_FJC_Model_Extension_nm,Residual_WLC_pN,Residual_FJC_nm\n';
 
     const rows = activePoints.map(p => {
-      let theoretical = 0.0;
-      let error = 0.0;
-
-      if (modelType === 'WLC') {
-        const kBT = 4.114;
-        const Lp = params.persistenceLength;
-        const Lc = params.contourLength;
-        const zRatio = p.x / Lc;
-        if (zRatio < 0.999 && zRatio > 0) {
-          theoretical = (kBT / Lp) * (1.0 / (4.0 * Math.pow(1.0 - zRatio, 2)) - 0.25 + zRatio);
-        } else if (zRatio >= 0.999) {
-          theoretical = 10000.0; 
-        }
-        error = p.y - theoretical;
-      } else {
-        const kBT = 4.114;
-        const Lk = params.kuhnLength;
-        const Lc = params.contourLength;
-        const z = (p.y * Lk) / kBT;
-        // Langevin(z)
-        let Lz = 0;
-        if (Math.abs(z) > 1e-4) {
-          const exp = Math.exp(2 * Math.abs(z));
-          const coth = (exp + 1) / (exp - 1);
-          Lz = Math.sign(z) * coth - 1.0 / z;
-        } else {
-          Lz = z / 3.0;
-        }
-        theoretical = Lc * Lz;
-        error = p.x - theoretical;
+      // WLC Model
+      let theoreticalWlc = 0.0;
+      let errorWlc = 0.0;
+      const kBT = 4.114;
+      const Lp = params.persistenceLength;
+      const LcWlc = params.contourLengthWlc;
+      const zRatio = p.x / LcWlc;
+      if (zRatio < 0.999 && zRatio > 0) {
+        theoreticalWlc = (kBT / Lp) * (1.0 / (4.0 * Math.pow(1.0 - zRatio, 2)) - 0.25 + zRatio);
+      } else if (zRatio >= 0.999) {
+        theoreticalWlc = 10000.0; 
       }
+      errorWlc = p.y - theoreticalWlc;
 
-      return `${p.index},${p.xRaw.toExponential(6)},${p.yRaw.toExponential(6)},${p.x.toFixed(4)},${p.y.toFixed(4)},${theoretical.toFixed(4)},${error.toFixed(4)}`;
+      // FJC Model
+      let theoreticalFjc = 0.0;
+      let errorFjc = 0.0;
+      const Lk = params.kuhnLength;
+      const LcFjc = params.contourLengthFjc;
+      const z = (p.y * Lk) / kBT;
+      let Lz = 0;
+      if (Math.abs(z) > 1e-4) {
+        const exp = Math.exp(2 * Math.abs(z));
+        const coth = (exp + 1) / (exp - 1);
+        Lz = Math.sign(z) * coth - 1.0 / z;
+      } else {
+        Lz = z / 3.0;
+      }
+      theoreticalFjc = LcFjc * Lz;
+      errorFjc = p.x - theoreticalFjc;
+
+      return `${p.index},${p.xRaw.toExponential(6)},${p.yRaw.toExponential(6)},${p.x.toFixed(4)},${p.y.toFixed(4)},${theoreticalWlc.toFixed(4)},${theoreticalFjc.toFixed(4)},${errorWlc.toFixed(4)},${errorFjc.toFixed(4)}`;
     });
 
     const blob = new Blob([csv + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.setAttribute("download", `PolymerFit-${modelType}_Fitting_Results-${currentFileName.replace('.txt', '')}.csv`);
+    link.setAttribute("download", `PolymerFit-Comparison_Results-${currentFileName.replace('.txt', '')}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -398,14 +391,13 @@ export default function App() {
       <main className="flex-1 flex overflow-hidden">
         {/* Left Parameter Panel */}
         <Sidebar
-          modelType={modelType}
-          onModelTypeChange={setModelType}
           params={params}
           onParamsChange={handleParamsChange}
           coordinateShift={coordinateShift}
           onCoordinateShiftChange={setCoordinateShift}
           onResetViewport={handleResetViewport}
-          fitResults={fitResults}
+          fitResultsWlc={fitResultsWlc}
+          fitResultsFjc={fitResultsFjc}
           maxX={maxX}
           hasExperimentalData={activePoints.length > 0}
           pickedX={pickedX}
@@ -417,7 +409,6 @@ export default function App() {
         {/* Graphics Plot Area */}
         <GraphArea
           points={activePoints}
-          modelType={modelType}
           params={params}
           coordinateShift={coordinateShift}
           viewport={viewport}
@@ -429,6 +420,8 @@ export default function App() {
           onCursorMove={handleCursorMove}
           onResetViewport={handleResetViewport}
           currentFileName={currentFileName}
+          fitResultsWlc={fitResultsWlc}
+          fitResultsFjc={fitResultsFjc}
         />
       </main>
 
@@ -436,9 +429,9 @@ export default function App() {
       <Footer
         cursorX={cursorX}
         cursorY={cursorY}
-        modelType={modelType}
         params={params}
-        fitResults={fitResults}
+        fitResultsWlc={fitResultsWlc}
+        fitResultsFjc={fitResultsFjc}
         onPerformGlobalFit={handlePerformGlobalFit}
         onExportCsv={handleExportCsv}
         hasPoints={activePoints.length > 0}

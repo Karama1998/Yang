@@ -2,8 +2,9 @@ export type ModelType = 'WLC' | 'FJC';
 
 export interface ChainParameters {
   persistenceLength: number; // Lp in nm
-  contourLength: number;     // Lc in nm
+  contourLengthWlc: number;  // Lc for WLC in nm
   kuhnLength: number;        // Lk in nm (for FJC, Lk = 2 * Lp normally)
+  contourLengthFjc: number;  // Lc for FJC in nm
 }
 
 export interface CoordinateShift {
