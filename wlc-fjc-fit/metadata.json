@@ -1,0 +1,8 @@
+{
+  "name": "Polymer Chain Mechanic Curve Fitter",
+  "description": "An interactive web-based polymer mechanics simulator for fitting Worm-Like Chain (WLC) and Freely Jointed Chain (FJC) models. Supports importing JPK AFM force text spectroscopy, zoom/pan viewport, coordinate offsets, and real-time point-picked regression.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
